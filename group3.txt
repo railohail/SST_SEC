@@ -1,0 +1,245 @@
+================================================================================
+                    SPEECH COMMAND APP - SYSTEM FLOWCHART
+                                 Group 3
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              OVERVIEW                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  A hands-free Chinese speech-to-text application with voice correction      │
+│  commands. Users can dictate text and correct mistakes using natural        │
+│  language commands like "把X改成Y" (change X to Y).                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                           MAIN WORKFLOW
+================================================================================
+
+    ┌─────────────────┐
+    │   User presses  │
+    │  hotkey to start│
+    │   (Cmd+Shift+   │
+    │     Space)      │
+    └────────┬────────┘
+             │
+             ▼
+    ┌─────────────────┐
+    │  Audio Recorder │◄──────────── PyAudio (pyaudio)
+    │   starts recording      │
+    │   (16kHz, mono) │
+    └────────┬────────┘
+             │
+             │  User presses hotkey again to stop
+             ▼
+    ┌─────────────────┐
+    │  Save audio to  │
+    │   temp WAV file │
+    └────────┬────────┘
+             │
+             ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    SPEECH-TO-TEXT (STT)                      │
+    │  ┌─────────────────────┐    ┌─────────────────────────────┐ │
+    │  │   Option 1: FunASR  │    │   Option 2: Whisper         │ │
+    │  │  ┌───────────────┐  │    │  ┌───────────────────────┐  │ │
+    │  │  │  SenseVoice   │  │    │  │   Faster-Whisper      │  │ │
+    │  │  │  (Alibaba)    │  │    │  │   (OpenAI)            │  │ │
+    │  │  │  ~460MB       │  │    │  │   small model         │  │ │
+    │  │  └───────────────┘  │    │  └───────────────────────┘  │ │
+    │  │  + VAD (FSMN)       │    │                             │ │
+    │  │  + OpenCC (s2t)     │    │                             │ │
+    │  └─────────────────────┘    └─────────────────────────────┘ │
+    └────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────┐
+                    │   Transcribed Text  │
+                    │   (Traditional      │
+                    │    Chinese)         │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Is this a command? │
+                    │  (Regex matching)   │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┴────────────────┐
+              │                                 │
+              ▼                                 ▼
+    ┌─────────────────┐               ┌─────────────────┐
+    │   YES: Command  │               │  NO: Normal     │
+    │   Detected      │               │  Dictation      │
+    └────────┬────────┘               └────────┬────────┘
+             │                                  │
+             ▼                                  │
+    ┌─────────────────────────────────┐        │
+    │     COMMAND PROCESSING          │        │
+    │  ┌───────────────────────────┐  │        │
+    │  │  1. Parse command type    │  │        │
+    │  │     - Replace (把X改成Y)   │  │        │
+    │  │     - Delete (刪除X)       │  │        │
+    │  │     - Insert (在X前/後加Y) │  │        │
+    │  └───────────────────────────┘  │        │
+    │               │                 │        │
+    │               ▼                 │        │
+    │  ┌───────────────────────────┐  │        │
+    │  │  2. BERT + CRF Model      │  │        │
+    │  │     (Sequence Labeling)   │  │        │
+    │  │  ┌─────────────────────┐  │  │        │
+    │  │  │ bert-base-          │  │  │        │
+    │  │  │ multilingual-cased  │  │  │        │
+    │  │  │ (Google)            │  │  │        │
+    │  │  └─────────────────────┘  │  │        │
+    │  │  ┌─────────────────────┐  │  │        │
+    │  │  │ CRF Layer           │  │  │        │
+    │  │  │ (pytorch-crf)       │  │  │        │
+    │  │  └─────────────────────┘  │  │        │
+    │  │                           │  │        │
+    │  │  Labels:                  │  │        │
+    │  │  - O: Normal text         │  │        │
+    │  │  - B-Modify: Position     │  │        │
+    │  │    to modify              │  │        │
+    │  │  - B-Filling: Replacement │  │        │
+    │  │    content                │  │        │
+    │  └───────────────────────────┘  │        │
+    │               │                 │        │
+    │               ▼                 │        │
+    │  ┌───────────────────────────┐  │        │
+    │  │  3. Apply Correction      │  │        │
+    │  │     - BERT-first approach │  │        │
+    │  │     - Trust model position│  │        │
+    │  │     - Fallback to text    │  │        │
+    │  │       search if needed    │  │        │
+    │  └───────────────────────────┘  │        │
+    └─────────────────┬───────────────┘        │
+                      │                        │
+                      ▼                        ▼
+             ┌─────────────────────────────────────┐
+             │         OUTPUT TO APPLICATION       │
+             │  ┌───────────────────────────────┐  │
+             │  │  Keyboard Simulator           │  │
+             │  │  - pynput (keyboard control)  │  │
+             │  │  - pyperclip (clipboard)      │  │
+             │  │  - Accessibility API (macOS)  │  │
+             │  └───────────────────────────────┘  │
+             │                                     │
+             │  Method: Copy to clipboard + Cmd+V  │
+             │  (Best for Chinese character input) │
+             └─────────────────────────────────────┘
+
+
+================================================================================
+                         AI/ML TOOLS SUMMARY
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT              │ TOOL/MODEL                │ PURPOSE                │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Speech-to-Text (STT)   │ FunASR + SenseVoice       │ Chinese speech         │
+│                        │ (Alibaba ModelScope)      │ recognition            │
+│                        │ ~460MB                    │                        │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Speech-to-Text (Alt)   │ Faster-Whisper            │ Multi-language STT     │
+│                        │ (OpenAI Whisper)          │ (alternative backend)  │
+│                        │ small model               │                        │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Voice Activity         │ FSMN-VAD                  │ Detect speech segments │
+│ Detection (VAD)        │ (Alibaba)                 │ in audio               │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Sequence Labeling      │ BERT                      │ Understand context and │
+│ (Backbone)             │ bert-base-multilingual-   │ identify which chars   │
+│                        │ cased (Google)            │ to modify              │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Sequence Labeling      │ CRF                       │ Structured prediction  │
+│ (Output Layer)         │ (Conditional Random Field)│ for token labels       │
+│                        │ pytorch-crf               │                        │
+├────────────────────────┼───────────────────────────┼────────────────────────┤
+│ Chinese Conversion     │ OpenCC                    │ Simplified Chinese     │
+│                        │ (Open Chinese Convert)    │ → Traditional Chinese  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                        SUPPORTED COMMANDS
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMMAND TYPE     │ PATTERN              │ EXAMPLE                          │
+├──────────────────┼──────────────────────┼──────────────────────────────────┤
+│ Replace          │ 把X改成Y              │ "把高興的興改成欣賞的欣"           │
+│                  │ 把X換成Y              │ "把錯換成對"                      │
+├──────────────────┼──────────────────────┼──────────────────────────────────┤
+│ Delete           │ 刪除X                 │ "刪除錯字"                        │
+│                  │ 刪掉X                 │ "刪掉多餘的字"                    │
+│                  │ 把X刪掉               │ "把錯字刪掉"                      │
+├──────────────────┼──────────────────────┼──────────────────────────────────┤
+│ Insert Before    │ 在X前面新增Y          │ "在好前面新增很"                   │
+│                  │ 在X前面加Y            │ "在天前面加今"                    │
+├──────────────────┼──────────────────────┼──────────────────────────────────┤
+│ Insert After     │ 在X後面新增Y          │ "在天後面新增氣"                   │
+│                  │ 在X後面加Y            │ "在好後面加嗎"                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Note: Use "詞的字" pattern for disambiguation (e.g., "高興的興" → extracts "興")
+
+
+================================================================================
+                         DEPENDENCIES
+================================================================================
+
+Core ML:
+  - torch >= 2.0.0
+  - transformers >= 4.30.0
+  - pytorch-crf >= 0.7.2
+
+Speech-to-Text:
+  - faster-whisper >= 0.10.0
+  - funasr >= 1.0.0
+  - modelscope >= 1.0.0
+
+Audio:
+  - pyaudio >= 0.2.13
+
+Mac Integration:
+  - pynput >= 1.7.6
+  - pyperclip >= 1.8.2
+  - pyobjc-framework-ApplicationServices >= 9.0
+
+Utilities:
+  - numpy >= 1.24.0
+  - opencc >= 1.1.1
+
+
+================================================================================
+                         FILE STRUCTURE
+================================================================================
+
+speech_command_app/
+├── main.py                      # Entry point
+├── config.py                    # Configuration settings
+├── requirements.txt             # Dependencies
+│
+├── models/
+│   ├── crf_model.py             # BERT + CRF model definition
+│   └── model_weights/
+│       └── model_crf_enhanced.pt  # Trained model weights
+│
+├── services/
+│   ├── audio_recorder.py        # PyAudio recording
+│   ├── whisper_service.py       # Faster-Whisper STT
+│   ├── funasr_service.py        # FunASR STT + OpenCC
+│   ├── sequence_labeler.py      # BERT+CRF inference
+│   └── command_processor.py     # Command parsing & execution
+│
+└── utils/
+    ├── hotkey_manager.py        # Global hotkey handling
+    ├── keyboard_simulator.py    # Text output simulation
+    ├── accessibility.py         # macOS Accessibility API
+    └── debug_overlay.py         # Debug status display
+
+
+================================================================================
+                              END
+================================================================================

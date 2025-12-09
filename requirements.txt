@@ -1,0 +1,23 @@
+# Core ML
+torch>=2.0.0
+transformers>=4.30.0
+pytorch-crf>=0.7.2
+
+# Speech-to-text
+faster-whisper>=0.10.0
+funasr>=1.0.0
+modelscope>=1.0.0
+
+# Audio
+pyaudio>=0.2.13
+
+# Mac integration
+pynput>=1.7.6
+pyperclip>=1.8.2
+pyobjc-framework-ApplicationServices>=9.0
+
+# Utilities
+numpy>=1.24.0
+
+# Chinese text processing
+opencc>=1.1.1
