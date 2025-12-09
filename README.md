@@ -54,17 +54,26 @@ brew install portaudio
 pip install pyaudio
 ```
 
-### 4. Copy model weights
+### 4. Download model weights
 
-Copy your trained model to:
-```
-models/model_weights/model_crf_enhanced.pt
-```
+Download the model from Hugging Face:
 
-Or create a symlink:
 ```bash
-ln -s /path/to/your/model.pt models/model_weights/model_crf_enhanced.pt
+# Create the model directory
+mkdir -p models/model_weights
+
+# Download using huggingface-cli
+pip install huggingface_hub
+huggingface-cli download railohail/speech-command-model model_crf_enhanced.pt --local-dir models/model_weights
+
+# Or download directly with wget
+wget -O models/model_weights/model_crf_enhanced.pt https://huggingface.co/railohail/speech-command-model/resolve/main/model_crf_enhanced.pt
 ```
+
+Or manually download from:
+https://huggingface.co/railohail/speech-command-model/blob/main/model_crf_enhanced.pt
+
+and place it in `models/model_weights/`
 
 ## Usage
 
