@@ -9,6 +9,9 @@ env/
 .venv/
 .env/
 
+# Environment variables
+.env
+
 # Model weights (large files)
 models/model_weights/*.pt
 models/model_weights/*.bin
@@ -41,3 +44,4 @@ build/
 
 # Hugging Face cache
 .cache/
+test_api.py

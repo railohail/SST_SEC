@@ -35,6 +35,8 @@ class ParsedCommand:
     target: str = ""
     replacement: str = ""
     raw_command: str = ""
+    target_context: str = ""      # Reference word for target (e.g., "天氣" in "天氣的氣")
+    replacement_context: str = "" # Reference word for replacement (e.g., "器材" in "器材的器")
 
 
 class RuleBasedProcessor:
@@ -77,15 +79,17 @@ class RuleBasedProcessor:
         self.labeler = _DummyLabeler()
 
     @staticmethod
-    def extract_replacement(text: str) -> str:
+    def extract_char_and_context(text: str) -> Tuple[str, Optional[str]]:
         """
-        Extract the actual character from "X的Y" pattern.
+        Extract the actual character AND its reference context from "X的Y" pattern.
+
+        Returns:
+            Tuple of (character, reference_word or None)
 
         Examples:
-            - "欣賞的欣" → "欣" (欣 is in 欣賞)
-            - "欣賞的心" → "欣" (心 NOT in 欣賞, fallback to first char)
-            - "氣候的氣" → "氣"
-            - "心" → "心" (no 的, use as-is)
+            - "天氣的氣" → ("氣", "天氣")  - use 氣, context is 天氣
+            - "欣賞的心" → ("欣", "欣賞")  - 心 NOT in 欣賞, fallback to 欣
+            - "氣" → ("氣", None)         - no context
         """
         match = re.match(r'^(.+)的(.+)$', text)
         if match:
@@ -94,12 +98,21 @@ class RuleBasedProcessor:
 
             # If stated char is in reference word, use it
             if stated_char in reference_word:
-                return stated_char
+                return stated_char, reference_word
 
             # Fallback: use first char of reference word (Whisper likely misheard)
-            return reference_word[0]
+            return reference_word[0], reference_word
 
-        return text
+        return text, None
+
+    @staticmethod
+    def extract_replacement(text: str) -> str:
+        """
+        Extract the actual character from "X的Y" pattern.
+        (Backward compatible wrapper around extract_char_and_context)
+        """
+        char, _ = RuleBasedProcessor.extract_char_and_context(text)
+        return char
 
     def is_command(self, text: str) -> bool:
         """Check if text is a correction command."""
@@ -121,24 +134,33 @@ class RuleBasedProcessor:
                     groups = match.groups()
 
                     if cmd_type == CommandType.DELETE:
-                        target = self.extract_replacement(groups[0].strip())
+                        target, target_ctx = self.extract_char_and_context(groups[0].strip())
                         return ParsedCommand(
                             type=cmd_type,
                             target=target,
+                            target_context=target_ctx or "",
                             raw_command=text
                         )
                     elif cmd_type == CommandType.REPLACE:
+                        target, target_ctx = self.extract_char_and_context(groups[0])
+                        replacement, repl_ctx = self.extract_char_and_context(groups[1])
                         return ParsedCommand(
                             type=cmd_type,
-                            target=self.extract_replacement(groups[0]),
-                            replacement=self.extract_replacement(groups[1]),
+                            target=target,
+                            replacement=replacement,
+                            target_context=target_ctx or "",
+                            replacement_context=repl_ctx or "",
                             raw_command=text
                         )
                     elif cmd_type in (CommandType.INSERT_BEFORE, CommandType.INSERT_AFTER):
+                        target, target_ctx = self.extract_char_and_context(groups[0])
+                        replacement, repl_ctx = self.extract_char_and_context(groups[1])
                         return ParsedCommand(
                             type=cmd_type,
-                            target=self.extract_replacement(groups[0]),
-                            replacement=self.extract_replacement(groups[1]),
+                            target=target,
+                            replacement=replacement,
+                            target_context=target_ctx or "",
+                            replacement_context=repl_ctx or "",
                             raw_command=text
                         )
 
@@ -175,23 +197,31 @@ class RuleBasedProcessor:
         """
         Apply the correction to text using string matching.
 
-        Tries multiple strategies:
-        1. Exact match of target
-        2. If target has multiple chars, try each char individually
-        3. Fuzzy matching for homophones (same pinyin)
+        Tries multiple strategies (in order):
+        1. Context-aware match: Find reference word first, then target within it
+        2. Direct match of target character
+        3. Homophone matching for target
         """
         target = command.target
+        context = command.target_context
 
-        print(f"  [RULE] Applying {command.type.value}: target='{target}', replacement='{command.replacement}'")
+        print(f"  [RULE] Applying {command.type.value}: target='{target}', context='{context}', replacement='{command.replacement}'")
         print(f"  [RULE] Original text: '{text}'")
 
-        # Strategy 1: Direct match
+        # Strategy 1: Context-aware match (if reference word provided)
+        if context:
+            result = self._apply_with_context(text, command)
+            if result != text:
+                print(f"  [RULE] Context-aware match found, result: '{result}'")
+                return result
+
+        # Strategy 2: Direct match
         if target in text:
             result = self._apply_at_target(text, command, target)
             print(f"  [RULE] Direct match found, result: '{result}'")
             return result
 
-        # Strategy 2: Try each character individually (for multi-char targets)
+        # Strategy 3: Try each character individually (for multi-char targets)
         if len(target) > 1:
             for char in target:
                 if char in text:
@@ -205,13 +235,92 @@ class RuleBasedProcessor:
                     print(f"  [RULE] Partial match '{char}' found, result: '{result}'")
                     return result
 
-        # Strategy 3: Try homophone matching
+        # Strategy 4: Try homophone matching
         result = self._try_homophone_match(text, command)
         if result != text:
             print(f"  [RULE] Homophone match found, result: '{result}'")
             return result
 
         print(f"  [RULE] No match found, returning original text")
+        return text
+
+    def _apply_with_context(self, text: str, command: ParsedCommand) -> str:
+        """
+        Apply correction using reference word context.
+
+        Example: "把天氣的氣改成器材的器" on "今天天氣很好氣色也好"
+        - context="天氣", target="氣"
+        - Find "天氣" in text, then replace the "氣" that's part of it
+        - Result: "今天天器很好氣色也好" (only first 氣 changed)
+        """
+        context = command.target_context
+        target = command.target
+
+        # Try to find context word in text
+        ctx_pos = text.find(context)
+        if ctx_pos != -1:
+            # Found context! Now find target within context
+            target_pos_in_ctx = context.find(target)
+            if target_pos_in_ctx != -1:
+                # Calculate absolute position
+                abs_pos = ctx_pos + target_pos_in_ctx
+                return self._apply_at_position(text, command, abs_pos)
+
+        # Context not found - try homophones of context
+        # e.g., text has "天气" but context is "天氣"
+        context_homophones = self._get_context_variations(context)
+        for ctx_variant in context_homophones:
+            ctx_pos = text.find(ctx_variant)
+            if ctx_pos != -1:
+                # Find corresponding position for target
+                target_pos_in_ctx = context.find(target)
+                if target_pos_in_ctx != -1 and target_pos_in_ctx < len(ctx_variant):
+                    abs_pos = ctx_pos + target_pos_in_ctx
+                    return self._apply_at_position(text, command, abs_pos)
+
+        return text
+
+    def _get_context_variations(self, context: str) -> List[str]:
+        """
+        Generate variations of context word using homophones.
+        Useful for Traditional/Simplified Chinese matching.
+        """
+        # Common Traditional/Simplified pairs
+        TRAD_SIMP = {
+            '氣': '气', '氣': '气',
+            '機': '机', '開': '开', '關': '关',
+            '說': '说', '話': '话', '語': '语',
+            '學': '学', '習': '习',
+            '國': '国', '會': '会',
+            '時': '时', '間': '间',
+            '電': '电', '腦': '脑',
+            '車': '车', '東': '东', '西': '西',
+        }
+
+        variations = []
+        # Generate simplified version
+        simplified = ''.join(TRAD_SIMP.get(c, c) for c in context)
+        if simplified != context:
+            variations.append(simplified)
+
+        return variations
+
+    def _apply_at_position(self, text: str, command: ParsedCommand, position: int) -> str:
+        """Apply correction at a specific character position."""
+        target_len = len(command.target) if command.target else 1
+
+        if command.type == CommandType.DELETE:
+            return text[:position] + text[position + target_len:]
+
+        elif command.type == CommandType.REPLACE:
+            return text[:position] + command.replacement + text[position + target_len:]
+
+        elif command.type == CommandType.INSERT_BEFORE:
+            return text[:position] + command.replacement + text[position:]
+
+        elif command.type == CommandType.INSERT_AFTER:
+            return text[:position + target_len] + command.replacement + text[position + target_len:]
+
         return text
 
     def _apply_at_target(self, text: str, command: ParsedCommand, target: str) -> str:

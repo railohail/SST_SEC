@@ -66,10 +66,12 @@ class WhisperService:
             self.load()
 
         # Transcribe with Chinese language
+        # initial_prompt helps Whisper output Traditional Chinese (繁體中文)
         segments, info = self.model.transcribe(
             str(audio_path),
             language=self.language,
             beam_size=5,
+            initial_prompt="以下是繁體中文的語音轉文字。",
             vad_filter=True,  # Voice activity detection
             vad_parameters=dict(
                 min_silence_duration_ms=500,

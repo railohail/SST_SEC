@@ -34,6 +34,7 @@ from services.audio_recorder import AudioRecorder
 from services.whisper_service import WhisperService
 from services.command_processor import CommandProcessor
 from services.rule_based_processor import RuleBasedProcessor
+from services.gemini_processor import GeminiProcessor
 from utils.hotkey_manager import HotkeyManager
 from utils.keyboard_simulator import KeyboardSimulator
 
@@ -43,7 +44,7 @@ class SpeechCommandApp:
     Main application class for speech-to-text with command correction.
     """
 
-    def __init__(self, debug_mode: bool = None, hotkey: str = None, stt_backend: str = None, no_ml: bool = False):
+    def __init__(self, debug_mode: bool = None, hotkey: str = None, stt_backend: str = None, no_ml: bool = False, use_api: bool = False):
         """
         Initialize the application.
 
@@ -52,11 +53,13 @@ class SpeechCommandApp:
             hotkey: Custom hotkey (default: from config)
             stt_backend: STT backend ("whisper" or "funasr", default: from config)
             no_ml: Use rule-based processor instead of BERT model (default: False)
+            use_api: Use Gemini API for processing (default: False)
         """
         self.debug_mode = debug_mode if debug_mode is not None else config.DEBUG_MODE
         self.hotkey = hotkey or config.HOTKEY
         self.stt_backend = stt_backend or config.STT_BACKEND
         self.no_ml = no_ml
+        self.use_api = use_api
 
         # State
         self.is_recording = False
@@ -94,9 +97,11 @@ class SpeechCommandApp:
 
     @property
     def processor(self):
-        """Get the command processor (ML-based or rule-based)."""
+        """Get the command processor (API, rule-based, or ML-based)."""
         if self._processor is None:
-            if self.no_ml:
+            if self.use_api:
+                self._processor = GeminiProcessor()
+            elif self.no_ml:
                 self._processor = RuleBasedProcessor()
             else:
                 self._processor = CommandProcessor()
@@ -211,7 +216,8 @@ class SpeechCommandApp:
         print(f"Debug mode: {self.debug_mode}")
         print(f"Hotkey: {self.hotkey}")
         print(f"STT backend: {self.stt_backend}")
-        print(f"Processor: {'Rule-based (no ML)' if self.no_ml else 'BERT+CRF (ML)'}")
+        processor_name = 'Gemini API' if self.use_api else ('Rule-based (no ML)' if self.no_ml else 'BERT+CRF (ML)')
+        print(f"Processor: {processor_name}")
         print(f"Accessibility: {'enabled' if self.keyboard.has_accessibility() else 'disabled'}")
         print()
 
@@ -281,6 +287,11 @@ def main():
         action="store_true",
         help="Use rule-based processor instead of BERT model (faster, no GPU needed)"
     )
+    parser.add_argument(
+        "--api",
+        action="store_true",
+        help="Use Gemini API for intelligent correction (requires internet)"
+    )
 
     args = parser.parse_args()
 
@@ -296,7 +307,8 @@ def main():
         debug_mode=debug_mode,
         hotkey=args.hotkey,
         stt_backend=args.stt,
-        no_ml=args.notML
+        no_ml=args.notML,
+        use_api=args.api
     )
 
     # Handle signals

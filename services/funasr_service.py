@@ -18,15 +18,17 @@ class FunASRService:
     Chinese speech-to-text using Alibaba's FunASR.
 
     Models available:
-    - paraformer-small: Small, fast Chinese ASR (~70MB)
+    - paraformer-zh: Best for Chinese with VAD+punctuation (~1GB) [RECOMMENDED]
     - paraformer: Standard Chinese ASR (~220MB)
+    - paraformer-small: Small, fast Chinese ASR (~70MB)
     - sensevoice: Multi-language with emotion detection (~460MB)
     """
 
     # Available models - use full modelscope paths
     MODELS = {
+        "paraformer-zh": "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+        "paraformer": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
         "paraformer-small": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
-        "paraformer": "iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1",
         "sensevoice": "iic/SenseVoiceSmall",
     }
 
@@ -35,7 +37,7 @@ class FunASRService:
         Initialize FunASR service.
 
         Args:
-            model_name: One of "paraformer-small", "paraformer", "sensevoice"
+            model_name: One of "paraformer-zh", "paraformer", "paraformer-small", "sensevoice"
         """
         self.model_name = model_name
         self.model_id = self.MODELS.get(model_name, self.MODELS["sensevoice"])
@@ -72,7 +74,8 @@ class FunASRService:
 
     def _clean_text(self, text: str) -> str:
         """
-        Clean the transcribed text by removing SenseVoice tags and
+        Clean the transcribed text by removing SenseVoice tags,
+        removing spaces between Chinese characters, and
         converting simplified Chinese to traditional Chinese.
 
         Args:
@@ -83,6 +86,10 @@ class FunASRService:
         """
         # Remove SenseVoice tags like <|zh|><|NEUTRAL|><|Speech|><|woitn|>
         cleaned = re.sub(r'<\|[^|>]+\|>', '', text)
+
+        # Remove spaces between Chinese characters (paraformer-zh adds spaces)
+        # Keep spaces around English words/numbers
+        cleaned = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', cleaned)
 
         # Convert simplified to traditional Chinese if opencc is available
         if _opencc_converter:

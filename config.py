@@ -16,10 +16,10 @@ class Config:
     STT_BACKEND: str = "whisper"
 
     # FunASR settings (if STT_BACKEND="funasr")
-    FUNASR_MODEL: str = "sensevoice"  # "sensevoice" (recommended), "paraformer"
-
+    # FUNASR_MODEL: str = "sensevoice"  # "sensevoice" (recommended), "paraformer"
+    FUNASR_MODEL: str = "paraformer-zh"
     # Whisper settings (if STT_BACKEND="whisper")
-    WHISPER_MODEL: str = "small"
+    WHISPER_MODEL: str = "medium"
     WHISPER_LANGUAGE: str = "zh"
     WHISPER_DEVICE: str = "cpu"  # or "cuda" or "mps"
     WHISPER_COMPUTE_TYPE: str = "int8"  # int8 for faster inference
