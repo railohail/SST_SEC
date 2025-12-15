@@ -51,11 +51,15 @@ class CommandProcessor:
         ],
         CommandType.INSERT_BEFORE: [
             re.compile(r'^(?:請)?在(.+)前面新增(.+)$'),  # 在X前面新增Y
-            re.compile(r'^(?:請)?在(.+)前面加上?(.+)$'), # 在X前面加Y
+            re.compile(r'^(?:請)?在(.+)前面加入(.+)$'),  # 在X前面加入Y
+            re.compile(r'^(?:請)?在(.+)前面加上(.+)$'),  # 在X前面加上Y
+            re.compile(r'^(?:請)?在(.+)前面加(.+)$'),    # 在X前面加Y
         ],
         CommandType.INSERT_AFTER: [
             re.compile(r'^(?:請)?在(.+)後面新增(.+)$'),  # 在X後面新增Y
-            re.compile(r'^(?:請)?在(.+)後面加上?(.+)$'), # 在X後面加Y
+            re.compile(r'^(?:請)?在(.+)後面加入(.+)$'),  # 在X後面加入Y
+            re.compile(r'^(?:請)?在(.+)後面加上(.+)$'),  # 在X後面加上Y
+            re.compile(r'^(?:請)?在(.+)後面加(.+)$'),    # 在X後面加Y
         ],
     }
 
