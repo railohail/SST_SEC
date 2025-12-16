@@ -25,6 +25,9 @@ import sys
 import threading
 import time
 from pathlib import Path
+from PIL import Image
+import pystray
+from typing import Optional, Any
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -61,6 +64,17 @@ class SpeechCommandApp:
         self.no_ml = no_ml
         self.use_api = use_api
 
+
+        #icon images
+        self.tray_icon: Optional[pystray.Icon] = None
+        self.ready_icon_img: Optional[Image.Image] = None # 靜態（白）圖標
+        self.recording_icon_img: Optional[Image.Image] = None # 錄製中（紅）圖標
+        self.placeholder_icon_img: Optional[Image.Image] = None # 備用圖
+
+        # icon blink state
+        self._blink_timer = None
+        self._blink_state = False
+
         # State
         self.is_recording = False
         self.last_typed_text = ""
@@ -72,6 +86,8 @@ class SpeechCommandApp:
         self._processor = None
         self._hotkey_manager = None
         self._keyboard = None
+
+        
 
     @property
     def recorder(self) -> AudioRecorder:
@@ -114,13 +130,16 @@ class SpeechCommandApp:
         return self._keyboard
 
     def _show_status(self, message: str) -> None:
-        """Show status message (debug mode only)."""
-        if self.debug_mode:
-            print(f"[STATUS] {message}")
+        """Show status message and update tray icon title."""
+        print(f"[STATUS] {message}")
+        # [最小化修改：新增 Pystray 狀態更新]
+        if self.tray_icon:
+            self.tray_icon.title = f"Speech App - {message}"
 
     def _hide_status(self) -> None:
-        """Hide status (no-op for console mode)."""
-        pass
+        """Hide status (update tray title to 'Ready')."""
+        # [最小化修改：新增 Pystray 狀態更新]
+        self._show_status("Ready")
 
     '''    
     def on_hotkey(self) -> None:
@@ -131,8 +150,65 @@ class SpeechCommandApp:
             else:
                 self._stop_and_process()
     '''
+    def get_toggle_text(self, icon: Any) -> str:
+        """Dynamically set the menu text based on recording state."""
+        if self.is_recording:
+            return 'Stop Recording'
+        # 保留 hotkey 提示
+        return f'Start Recording ({self.hotkey})'
+
+    def _load_icon_safe(self, filename: str) -> Optional[Image.Image]:
+        icon_path = Path(__file__).parent / filename
+        try:
+            img = Image.open(icon_path)
+            print(f"Icon loaded successfully from: {icon_path}")
+            return img
+        except FileNotFoundError:
+            print(f"⚠️ Warning: Icon file not found at {icon_path}.")
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to load icon image '{filename}': {e.__class__.__name__}.")
+        return None
+
+
+    def setup_tray(self) -> None:
+        # 1. 載入靜態（Ready）和錄製中（Recording）圖標
+        self.ready_icon_img = self._load_icon_safe("speech-synthesis.png")
+        self.recording_icon_img = self._load_icon_safe("speech-synthesis_red.png")
+        
+        # 2. 建立備用圖標 (如果載入失敗)
+        if not self.ready_icon_img:
+            self.placeholder_icon_img = Image.new('RGB', (16, 16), (255, 255, 255))
+            self.ready_icon_img = self.placeholder_icon_img
+        if not self.recording_icon_img:
+            # 如果紅色圖標遺失，退回到一個實心紅色方塊
+            self.recording_icon_img = Image.new('RGB', (16, 16), (255, 0, 0))
+            
+        # 3. 創建菜單 (保持不變)
+        menu = pystray.Menu(
+            pystray.MenuItem(text=self.get_toggle_text, action=self.on_hotkey),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(text='❌ Exit', action=self.cleanup_and_exit)
+        )
+        
+        # 4. 創建 Pystray 實例，使用 Ready Icon 作為初始圖標
+        self.tray_icon = pystray.Icon(
+            name="SpeechCommandApp", 
+            icon=self.ready_icon_img, # 使用載入的白色圖標作為初始狀態
+            title="Speech App - Initializing...",
+            menu=menu
+        )
+        self.tray_icon.title = "Speech App - Ready"
+
+    def cleanup_and_exit(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        """停止圖標並退出程式 (用於菜單退出)。"""
+        print("\nExiting via System Tray Menu...")
+        self.cleanup()
+        if icon:
+            icon.stop()
+        sys.exit(0)
+
     #new version 
-    def on_hotkey(self) -> None:
+    def on_hotkey(self, icon: Optional[pystray.Icon]=None, item: Optional[pystray.MenuItem]=None) -> None:
         """Handle hotkey press - toggle recording (Fast Toggle)."""
         
         if not self.is_recording:
@@ -218,6 +294,10 @@ class SpeechCommandApp:
         self.is_recording = False
         self._show_status("Processing...")
         
+        if self._blink_timer:
+            self._blink_timer.cancel()
+            self._blink_timer = None
+        self._set_static_icon()
         # 2. 將核心邏輯丟給新的執行緒處理
         process_thread = threading.Thread(target=self._stop_and_process_core)
         process_thread.start()
@@ -296,47 +376,101 @@ class SpeechCommandApp:
     def run(self) -> None:
         """Run the application."""
         print("=" * 60)
-        print("Speech Command App")
-        print("=" * 60)
-        print(f"Debug mode: {self.debug_mode}")
-        print(f"Hotkey: {self.hotkey}")
-        print(f"STT backend: {self.stt_backend}")
-        processor_name = 'Gemini API' if self.use_api else ('Rule-based (no ML)' if self.no_ml else 'BERT+CRF (ML)')
-        print(f"Processor: {processor_name}")
-        print(f"Accessibility: {'enabled' if self.keyboard.has_accessibility() else 'disabled'}")
-        print()
-
+        print(f"🎙️ Speech Command App starting...")
+        
         # Preload models
         self._preload_models()
 
-        # Debug overlay disabled (tkinter has macOS threading issues)
-        # Status shown in console instead
+        # [新增 Pystray 啟動]
+        self.setup_tray()
+        # [結束 Pystray 啟動]
 
-        # Setup hotkey listener
-        self._hotkey_manager = HotkeyManager(
-            hotkey=self.hotkey,
-            callback=self.on_hotkey
-        )
+        # 啟動 Hotkey Manager
+        self._hotkey_manager = HotkeyManager(hotkey=self.hotkey, callback=self.on_hotkey)
         self._hotkey_manager.start()
 
-        print()
-        print("Ready! Press the hotkey to start/stop recording.")
-        print("Press Ctrl+C to exit.")
-        print("=" * 60)
+        print(f"Hotkey Registered: {self.hotkey}")
+        # 顯示初始狀態
+        self._show_status("Ready")
 
-        # Wait for exit
+        # [修改主迴圈]
+        # 兼容 Mac/Win：讓 Pystray 在背景執行緒中運行 (run_detached)
+        self.tray_icon.run_detached()
+
+        print("System Tray icon running. Use 'Exit' in the menu to close.")
+        print("=" * 60)
+        
         try:
-            self._hotkey_manager.wait()
+            # Pystray 在背景執行緒中，我們手動讓主線程保持活躍
+            while True:
+                time.sleep(1)
         except KeyboardInterrupt:
-            print("\nShutting down...")
+            print("\nReceived Ctrl+C, shutting down...")
+        finally:
             self.cleanup()
+            if self.tray_icon:
+                self.tray_icon.stop() # 確保停止 Pystray
+            sys.exit(0)
 
     def cleanup(self) -> None:
         """Clean up resources."""
         if self._hotkey_manager:
             self._hotkey_manager.stop()
+            
         if self._recorder:
             self._recorder.cleanup()
+
+        if self._blink_timer:
+            self._blink_timer.cancel()
+            self._blink_timer = None
+        
+        if self.tray_icon:
+            self.tray_icon.stop()
+    
+
+    def _get_recording_icon_image(self) -> Image.Image:
+        """返回紅色的 Recording 圖標 (用於閃爍的 'on' 狀態)。"""
+        # 使用一個 16x16 的實心紅色方塊來實現高對比度閃爍
+        return Image.new('RGB', (16, 16), (255, 0, 0))
+
+    def _set_static_icon(self) -> None:
+        """將圖標設回靜態的 Ready 狀態 (使用自定義的 Ready 圖標)。"""
+        if self.tray_icon and self.ready_icon_img:
+            self.tray_icon.icon = self.ready_icon_img
+
+
+    def _blink_icon_toggle(self) -> None:
+        """定時器觸發，切換系統託盤圖標的外觀 (紅白切換)。"""
+        if not self.is_recording or not self.tray_icon:
+            self._set_static_icon()
+            return
+
+        if self._blink_state:
+            # 狀態 A: 顯示為白色（Ready）圖標
+            self.tray_icon.icon = self.ready_icon_img
+        else:
+            # 狀態 B: 顯示為紅色（Recording）圖標
+            self.tray_icon.icon = self.recording_icon_img
+            
+        self._blink_state = not self._blink_state # 切換狀態
+        
+        # [重要] 重新啟動定時器以繼續閃爍 (0.5 秒切換一次)
+        self._blink_timer = threading.Timer(0.5, self._blink_icon_toggle) 
+        self._blink_timer.start()
+
+    # main.py (在 _start_recording 函式內，約 195 行處)
+
+    def _start_recording(self) -> None:
+        """Start audio recording."""
+        self.is_recording = True
+        self._show_status("Recording...")
+        self.recorder.start()
+        
+        # [新增] 啟動閃爍定時器
+        self._blink_state = False 
+        self._blink_icon_toggle() # 立即啟動第一次切換和定時器
+
+    
 
 
 def main():
@@ -410,3 +544,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
