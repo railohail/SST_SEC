@@ -1,120 +1,82 @@
-"""Global Hotkey Manager using pynput"""
-from typing import Callable, Optional, Set
-from threading import Thread
-
+"""
+Hotkey Manager using pynput.keyboard.GlobalHotKeys (Safe Mode)
+"""
+import time
+import sys
+from typing import Callable
 from pynput import keyboard
-from pynput.keyboard import Key, KeyCode
-
-from config import config
-
 
 class HotkeyManager:
     """
-    Manages global hotkey detection for toggle recording.
-
-    Default hotkey: Cmd+Shift+Space (configurable)
+    Manages global hotkey detection using the safe GlobalHotKeys wrapper.
     """
 
-    # Map string names to pynput keys
-    KEY_MAP = {
-        '<cmd>': Key.cmd,
-        '<shift>': Key.shift,
-        '<ctrl>': Key.ctrl,
-        '<alt>': Key.alt,
-        '<space>': Key.space,
-        '<enter>': Key.enter,
-        '<tab>': Key.tab,
-        '<esc>': Key.esc,
-    }
-
-    def __init__(
-        self,
-        hotkey: str = None,
-        callback: Callable[[], None] = None
-    ):
+    def __init__(self, hotkey: str, callback: Callable[[], None]):
         """
         Initialize the hotkey manager.
 
         Args:
-            hotkey: Hotkey string (e.g., "<cmd>+<shift>+<space>")
-            callback: Function to call when hotkey is pressed
+            hotkey: The hotkey combination string (e.g., '<f9>', '<ctrl>+<alt>+<space>')
+            callback: Function to call when hotkey is triggered
         """
-        self.hotkey_str = hotkey or config.HOTKEY
+        self.hotkey_str = hotkey
         self.callback = callback
+        self.listener = None
+        self.is_running = False
 
-        # Parse hotkey string
-        self.hotkey_keys = self._parse_hotkey(self.hotkey_str)
-
-        # Track currently pressed keys
-        self.current_keys: Set = set()
-
-        # Listener
-        self.listener: Optional[keyboard.Listener] = None
-        self._running = False
-
-    def _parse_hotkey(self, hotkey_str: str) -> Set:
-        """Parse hotkey string into set of pynput keys."""
-        keys = set()
-        parts = hotkey_str.lower().split('+')
-
-        for part in parts:
-            part = part.strip()
-            if part in self.KEY_MAP:
-                keys.add(self.KEY_MAP[part])
-            elif len(part) == 1:
-                # Single character key
-                keys.add(KeyCode.from_char(part))
-            else:
-                print(f"Warning: Unknown key '{part}' in hotkey")
-
-        return keys
-
-    def _on_press(self, key) -> None:
-        """Handle key press event."""
-        # Normalize key
-        if hasattr(key, 'char') and key.char:
-            self.current_keys.add(KeyCode.from_char(key.char.lower()))
-        else:
-            self.current_keys.add(key)
-
-        # Check if hotkey combination is pressed
-        if self.hotkey_keys.issubset(self.current_keys):
-            if self.callback:
-                # Call callback in separate thread to avoid blocking
-                Thread(target=self.callback).start()
-
-    def _on_release(self, key) -> None:
-        """Handle key release event."""
-        # Normalize key
-        if hasattr(key, 'char') and key.char:
-            self.current_keys.discard(KeyCode.from_char(key.char.lower()))
-        else:
-            self.current_keys.discard(key)
+        # [Windows 修正] pynput 在 Windows 看不懂 <cmd>，自動轉成 <ctrl>
+        if sys.platform == "win32" and "<cmd>" in self.hotkey_str:
+            self.hotkey_str = self.hotkey_str.replace("<cmd>", "<ctrl>")
 
     def start(self) -> None:
-        """Start listening for hotkey."""
-        if self._running:
+        """Start the hotkey listener safely."""
+        if self.is_running:
             return
+            
+        self.is_running = True
+        
+        print(f"[HotkeyManager] Registering hotkey: {self.hotkey_str}")
+        
+        try:
+            # 💡 核心差異：使用 GlobalHotKeys
+            # 這種寫法是 pynput 內部幫你處理好判定，
+            # 只有當「完全符合」F9 時，才會觸發 on_activate。
+            # 其他按鍵完全不會被這裡攔截或處理。
+            self.listener = keyboard.GlobalHotKeys({
+                self.hotkey_str: self.on_activate
+            })
+            self.listener.start()
+            
+        except Exception as e:
+            print(f"[HotkeyManager] Error starting listener: {e}")
+            print(f"請檢查 config.py 的熱鍵格式是否正確 (例如 '<f9>')")
+            self.is_running = False
 
-        self._running = True
-        self.listener = keyboard.Listener(
-            on_press=self._on_press,
-            on_release=self._on_release
-        )
-        self.listener.start()
-        print(f"Hotkey listener started. Press {self.hotkey_str} to toggle recording.")
+    def on_activate(self):
+        """Callback when hotkey is triggered."""
+        if self.callback:
+            # 這裡不需要開 Thread，因為 main.py 裡面的 callback 會處理
+            self.callback()
 
     def stop(self) -> None:
-        """Stop listening for hotkey."""
-        if not self._running:
-            return
-
-        self._running = False
+        """Stop the hotkey listener."""
+        self.is_running = False
         if self.listener:
-            self.listener.stop()
+            try:
+                self.listener.stop()
+            except:
+                pass
             self.listener = None
 
     def wait(self) -> None:
-        """Wait for listener to finish (blocks until stopped)."""
+        """
+        Keep the main thread alive, but allow Ctrl+C to exit.
+        """
         if self.listener:
-            self.listener.join()
+            try:
+                # 💡 關鍵修正：不要用 join() 死守
+                # 改用迴圈 + sleep，這樣您的 Ctrl+C 才能被 main.py 捕捉到
+                while self.listener.is_alive() and self.is_running:
+                    time.sleep(0.1)
+            except KeyboardInterrupt:
+                self.stop()

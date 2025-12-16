@@ -1,4 +1,5 @@
 """Keyboard Simulator for typing text at cursor position"""
+import sys # [新增] 用來判斷 sys.platform
 import time
 from typing import Optional, Tuple
 
@@ -13,6 +14,8 @@ except ImportError:
     ACCESSIBILITY_AVAILABLE = False
     AccessibilityHelper = None
     TextFieldState = None
+
+MODIFIER_KEY = Key.cmd if sys.platform == "darwin" else Key.ctrl
 
 
 class KeyboardSimulator:
@@ -67,10 +70,10 @@ class KeyboardSimulator:
         time.sleep(0.05)
 
         # Paste (Cmd+V on Mac)
-        self.keyboard.press(Key.cmd)
+        self.keyboard.press(MODIFIER_KEY)
         self.keyboard.press('v')
         self.keyboard.release('v')
-        self.keyboard.release(Key.cmd)
+        self.keyboard.release(MODIFIER_KEY)
 
         # Small delay after paste
         time.sleep(0.05)
@@ -101,10 +104,10 @@ class KeyboardSimulator:
 
     def select_all_and_delete(self) -> None:
         """Select all text and delete (Cmd+A, Delete)."""
-        self.keyboard.press(Key.cmd)
+        self.keyboard.press(MODIFIER_KEY)
         self.keyboard.press('a')
         self.keyboard.release('a')
-        self.keyboard.release(Key.cmd)
+        self.keyboard.release(MODIFIER_KEY)
         time.sleep(0.05)
 
         self.keyboard.press(Key.backspace)

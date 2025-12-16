@@ -122,6 +122,7 @@ class SpeechCommandApp:
         """Hide status (no-op for console mode)."""
         pass
 
+    '''    
     def on_hotkey(self) -> None:
         """Handle hotkey press - toggle recording."""
         with self._lock:
@@ -129,13 +130,22 @@ class SpeechCommandApp:
                 self._start_recording()
             else:
                 self._stop_and_process()
+    '''
+    #new version 
+    def on_hotkey(self) -> None:
+        """Handle hotkey press - toggle recording (Fast Toggle)."""
+        
+        if not self.is_recording:
+            self._start_recording()
+        else:
+            self._stop_and_process() 
 
     def _start_recording(self) -> None:
         """Start audio recording."""
         self.is_recording = True
         self._show_status("Recording...")
         self.recorder.start()
-
+    '''
     def _stop_and_process(self) -> None:
         """Stop recording and process the audio."""
         self.is_recording = False
@@ -143,6 +153,81 @@ class SpeechCommandApp:
 
         # Stop recording
         audio_path = self.recorder.stop()
+
+        try:
+            # Transcribe audio
+            self._show_status("Transcribing...")
+            text = self.whisper.transcribe(audio_path)
+
+            if not text:
+                self._show_status("No speech detected")
+                time.sleep(1)
+                self._hide_status()
+                return
+
+            self._show_status(f"Heard: {text}")
+
+            # Check if this is a correction command
+            if self.processor.is_command(text):
+                # First, check if user has selected text to correct
+                selected_text = self.keyboard.get_selected_text()
+                target_text = selected_text if selected_text else self.last_typed_text
+                has_selection = bool(selected_text)
+
+                self._show_status(f"Applying correction to: '{target_text}' (selected: {has_selection})")
+                result, was_command = self.processor.process(text, target_text)
+                self._show_status(f"Result: '{result}', was_command: {was_command}")
+
+                if was_command and target_text:
+                    if has_selection:
+                        # Replace selected text directly (typing replaces selection)
+                        self.keyboard.replace_selection(result)
+                    else:
+                        # Delete old text and type corrected version
+                        self.keyboard.replace_last_typed(target_text, result)
+                    self.last_typed_text = result
+                    self._show_status(f"Corrected: {result}")
+                else:
+                    # Couldn't apply correction, type as-is
+                    self.keyboard.type_text(text)
+                    self.last_typed_text = text
+            else:
+                # Normal dictation - just type the text
+                self._show_status(f"Typing: {text}")
+                try:
+                    self.keyboard.type_text(text)
+                    self.last_typed_text = text
+                    self._show_status(f"Typed: {text}")
+                except Exception as e:
+                    self._show_status(f"Typing failed: {e}")
+                    print(f"Typing error: {e}")
+
+            time.sleep(0.5)
+            self._hide_status()
+
+        except Exception as e:
+            self._show_status(f"Error: {e}")
+            print(f"Error processing speech: {e}")
+            time.sleep(2)
+            self._hide_status()
+    '''
+    def _stop_and_process(self) -> None:
+        """Stop recording, set state, and launch core processing thread."""
+        
+        # 1. 立即設定狀態為非錄音，釋放給下一個 F9
+        self.is_recording = False
+        self._show_status("Processing...")
+        
+        # 2. 將核心邏輯丟給新的執行緒處理
+        process_thread = threading.Thread(target=self._stop_and_process_core)
+        process_thread.start()
+
+    def _stop_and_process_core(self) -> None:
+        """Core logic for stopping recording and processing audio (runs in thread)."""
+        
+        with self._lock: 
+            # Stop recording
+            audio_path = self.recorder.stop()
 
         try:
             # Transcribe audio

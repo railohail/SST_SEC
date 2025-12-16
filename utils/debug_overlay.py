@@ -1,8 +1,13 @@
 """Debug Overlay for showing status messages"""
+import sys
 import tkinter as tk
 from threading import Lock
 from typing import Optional
 
+if sys.platform == "darwin":
+    FONT_FAMILY = 'SF Pro Display'
+else:
+    FONT_FAMILY = 'Segoe UI'
 
 class DebugOverlay:
     """
@@ -43,7 +48,7 @@ class DebugOverlay:
             text="",
             fg='#ffffff',
             bg='#1a1a2e',
-            font=('SF Pro Display', 14, 'bold'),
+            font=(FONT_FAMILY, 14, 'bold'),
             padx=20,
             pady=10
         )

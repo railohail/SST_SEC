@@ -11,13 +11,18 @@ modelscope>=1.0.0
 # Audio
 pyaudio>=0.2.13
 
-# Mac integration
+# Cross-Platform Integration
 pynput>=1.7.6
 pyperclip>=1.8.2
-pyobjc-framework-ApplicationServices>=9.0
+
+pyobjc-framework-ApplicationServices>=9.0 ; sys_platform == 'darwin'
+pywin32>=306 ; sys_platform == 'win32'
+
 
 # Utilities
 numpy>=1.24.0
 
 # Chinese text processing
-opencc>=1.1.1
+opencc-python-reimplemented>=0.1.7
+
+

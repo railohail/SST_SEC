@@ -1,8 +1,11 @@
 """Configuration for Speech Command App"""
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import torch
 
+IS_MAC = sys.platform == "darwin"
 
 @dataclass
 class Config:
@@ -10,7 +13,7 @@ class Config:
     DEBUG_MODE: bool = True  # Show status overlay, False for production
 
     # Hotkey (pynput format)
-    HOTKEY: str = "<cmd>+<shift>+<space>"  # Toggle recording
+    HOTKEY: str = "<cmd>+<shift>+<space>" if IS_MAC else "<f9>"  # Toggle recording
 
     # STT Backend: "whisper" or "funasr"
     STT_BACKEND: str = "whisper"
@@ -21,8 +24,8 @@ class Config:
     # Whisper settings (if STT_BACKEND="whisper")
     WHISPER_MODEL: str = "medium"
     WHISPER_LANGUAGE: str = "zh"
-    WHISPER_DEVICE: str = "cpu"  # or "cuda" or "mps"
-    WHISPER_COMPUTE_TYPE: str = "int8"  # int8 for faster inference
+    WHISPER_DEVICE: str = "cuda" if torch.cuda.is_available() else ("mps" if IS_MAC else "cpu")  # or "cuda" or "mps"
+    WHISPER_COMPUTE_TYPE: str = "float16" if (torch.cuda.is_available() or IS_MAC) else "int8"  # int8 for faster inference
 
     # Model paths
     PROJECT_ROOT: Path = Path(__file__).parent
