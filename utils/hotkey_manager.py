@@ -24,7 +24,6 @@ class HotkeyManager:
         self.listener = None
         self.is_running = False
 
-        # [Windows 修正] pynput 在 Windows 看不懂 <cmd>，自動轉成 <ctrl>
         if sys.platform == "win32" and "<cmd>" in self.hotkey_str:
             self.hotkey_str = self.hotkey_str.replace("<cmd>", "<ctrl>")
 
@@ -38,10 +37,6 @@ class HotkeyManager:
         print(f"[HotkeyManager] Registering hotkey: {self.hotkey_str}")
         
         try:
-            # 💡 核心差異：使用 GlobalHotKeys
-            # 這種寫法是 pynput 內部幫你處理好判定，
-            # 只有當「完全符合」F9 時，才會觸發 on_activate。
-            # 其他按鍵完全不會被這裡攔截或處理。
             self.listener = keyboard.GlobalHotKeys({
                 self.hotkey_str: self.on_activate
             })
@@ -49,13 +44,12 @@ class HotkeyManager:
             
         except Exception as e:
             print(f"[HotkeyManager] Error starting listener: {e}")
-            print(f"請檢查 config.py 的熱鍵格式是否正確 (例如 '<f9>')")
+            print(f"Please Check if the hotkey format in config.py is correct")
             self.is_running = False
 
     def on_activate(self):
         """Callback when hotkey is triggered."""
         if self.callback:
-            # 這裡不需要開 Thread，因為 main.py 裡面的 callback 會處理
             self.callback()
 
     def stop(self) -> None:
@@ -74,8 +68,6 @@ class HotkeyManager:
         """
         if self.listener:
             try:
-                # 💡 關鍵修正：不要用 join() 死守
-                # 改用迴圈 + sleep，這樣您的 Ctrl+C 才能被 main.py 捕捉到
                 while self.listener.is_alive() and self.is_running:
                     time.sleep(0.1)
             except KeyboardInterrupt:

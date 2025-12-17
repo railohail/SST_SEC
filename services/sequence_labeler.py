@@ -40,6 +40,8 @@ class SequenceLabeler:
         # NOTE: MPS has bugs with model loading, use CPU for now
         if device:
             self.device = torch.device(device)
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
         else:
             # MPS disabled due to PyTorch bug with unaligned blit
             self.device = torch.device("cpu")
