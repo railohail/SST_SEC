@@ -147,7 +147,7 @@ class SpeechCommandApp:
         return f'Start Recording ({self.hotkey})'
 
     def _load_icon_safe(self, filename: str) -> Optional[Image.Image]:
-        icon_path = Path(__file__).parent / filename
+        icon_path = Path(__file__).parent / "img" / filename
         try:
             img = Image.open(icon_path)
             print(f"Icon loaded successfully from: {icon_path}")
@@ -251,12 +251,16 @@ class SpeechCommandApp:
                 self._show_status(f"Result: '{result}', was_command: {was_command}")
 
                 if was_command and target_text:
+                    # Shuffle effect before correction
+                    self._show_status("Transforming...")
+                    self.keyboard.shuffle_text_effect(target_text, iterations=4, delay=0.08)
+
                     if has_selection:
                         # Replace selected text directly (typing replaces selection)
                         self.keyboard.replace_selection(result)
                     else:
-                        # Delete old text and type corrected version
-                        self.keyboard.replace_last_typed(target_text, result)
+                        # Type corrected version (shuffle already deleted old text)
+                        self.keyboard.type_text(result)
                     self.last_typed_text = result
                     self._show_status(f"Corrected: {result}")
                 else:

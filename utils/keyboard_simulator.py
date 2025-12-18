@@ -1,6 +1,7 @@
 """Keyboard Simulator for typing text at cursor position"""
-import sys # [新增] 用來判斷 sys.platform
+import sys
 import time
+import random
 from typing import Optional, Tuple
 
 import pyperclip
@@ -129,6 +130,48 @@ class KeyboardSimulator:
         # Type new text
         time.sleep(0.05)
         self.type_text(new_text)
+
+    def shuffle_text_effect(self, text: str, iterations: int = 4, delay: float = 0.08) -> None:
+        """
+        Create a shuffle/scramble effect on text like a slot machine loading.
+
+        Uses select + replace to avoid cursor jumping back and forth.
+
+        Args:
+            text: The text to shuffle (will be selected and replaced)
+            iterations: Number of shuffle iterations (default: 4)
+            delay: Delay between iterations in seconds (default: 0.08)
+        """
+        if not text or len(text) < 2:
+            return
+
+        text_len = len(text)
+        chars = list(text)
+
+        for i in range(iterations):
+            # Shuffle the characters randomly
+            shuffled = chars.copy()
+            random.shuffle(shuffled)
+            shuffled_text = ''.join(shuffled)
+
+            # Select text backwards (Shift + Left Arrow for each character)
+            self._select_chars_backwards(text_len)
+            time.sleep(0.02)
+
+            # Type shuffled text (replaces selection, cursor ends at end)
+            self.type_text(shuffled_text)
+            time.sleep(delay)
+
+        # Select the last shuffled text so caller can replace it
+        self._select_chars_backwards(text_len)
+
+    def _select_chars_backwards(self, count: int) -> None:
+        """Select characters backwards from cursor using Shift+Left Arrow."""
+        self.keyboard.press(Key.shift)
+        for _ in range(count):
+            self.keyboard.tap(Key.left)
+        self.keyboard.release(Key.shift)
+        time.sleep(0.01)
 
     def get_selected_text(self) -> str:
         """
